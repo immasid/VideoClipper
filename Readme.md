@@ -13,7 +13,7 @@ A specialized video editing tool designed for clipping shorts/reels from long-fo
 
 ## Requirements
 - Python 3.8+
-- [FFmpeg](https://ffmpeg.org/download.html) (Must be installed and added to system PATH)
+- [FFmpeg Essentials Build](https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip)
 
 ## Installation
 

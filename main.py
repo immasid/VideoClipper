@@ -9,15 +9,14 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QRectF
 from PyQt6.QtGui import QPainter, QColor, QImage, QPixmap, QFont, QPen, QLinearGradient
 
 # --- GEMINI THEME COLORS ---
-# We define them here to use in the custom painting logic
-THEME_BG = QColor(14, 14, 14)       # Deepest background
-THEME_SURFACE = QColor(30, 31, 32)  # Card background
-THEME_ACCENT_1 = QColor(76, 141, 246) # Google Blue
-THEME_ACCENT_2 = QColor(124, 77, 255) # Deep Purple
+THEME_BG = QColor(14, 14, 14)
+THEME_SURFACE = QColor(30, 31, 32)
+THEME_ACCENT_1 = QColor(76, 141, 246)
+THEME_ACCENT_2 = QColor(124, 77, 255)
 THEME_TEXT = QColor(227, 227, 227)
 THEME_TEXT_SEC = QColor(148, 148, 148)
 
-# --- WORKER THREAD (Unchanged) ---
+# --- WORKER THREAD ---
 class ExportThread(QThread):
     progress_signal = pyqtSignal(int)
     finished_signal = pyqtSignal(str)
@@ -40,13 +39,13 @@ class ExportThread(QThread):
     def emit_progress(self, val):
         self.progress_signal.emit(val)
 
-# --- ZOOMABLE TRIMMER (Styled) ---
+# --- ZOOMABLE TRIMMER (Optimized) ---
 class ZoomableTrimmer(QWidget):
     rangeChanged = pyqtSignal(float, float)
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedHeight(120) # Slightly taller for better spacing
+        self.setFixedHeight(120)
         
         self.duration_sec = 100.0
         self.start_sec = 0.0
@@ -57,8 +56,19 @@ class ZoomableTrimmer(QWidget):
         self.dragging_end = False
         self.panning = False
         self.last_mouse_x = 0
-        self.handle_width = 16 # Sleeker handles
+        self.handle_width = 16
         self.min_px_gap = 15
+
+        # OPTIMIZATION: Pre-calculate reusable drawing objects to save CPU cycles in paint loop
+        self.brush_bg = THEME_SURFACE
+        self.pen_tick = QPen(QColor(60, 60, 60), 1)
+        self.pen_text = THEME_TEXT_SEC
+        self.brush_overlay = QColor(0, 0, 0, 200)
+        self.brush_selection = QColor(76, 141, 246, 50)
+        self.pen_border = QPen(THEME_ACCENT_1)
+        self.pen_border.setWidth(2)
+        self.pen_handle_line = QPen(THEME_ACCENT_1, 2)
+        self.pen_grip = QPen(QColor(255, 255, 255, 200), 1)
 
     def set_duration(self, seconds):
         self.duration_sec = max(0.1, seconds)
@@ -138,11 +148,12 @@ class ZoomableTrimmer(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        # FastAntialiasing is slightly faster than standard Antialiasing
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing) 
         w, h = self.width(), self.height()
         
-        # 1. Background (Dark)
-        painter.fillRect(0, 0, w, h, THEME_SURFACE)
+        # 1. Background
+        painter.fillRect(0, 0, w, h, self.brush_bg)
         
         # 2. Time Ticks
         if self.zoom_level < 2: step = 10
@@ -154,16 +165,15 @@ class ZoomableTrimmer(QWidget):
         end_vis = self.pixel_to_time(w)
         curr_t = (int(start_vis // step) * step)
         
-        painter.setPen(QPen(QColor(60, 60, 60), 1))
         painter.setFont(QFont("Segoe UI", 8))
         
         while curr_t < end_vis:
             px = int(self.time_to_pixel(curr_t))
+            painter.setPen(self.pen_tick)
             painter.drawLine(px, 0, px, h)
-            # Text color slightly lighter
-            painter.setPen(THEME_TEXT_SEC)
+            
+            painter.setPen(self.pen_text)
             painter.drawText(px + 4, 15, f"{curr_t:.1f}s")
-            painter.setPen(QPen(QColor(60, 60, 60), 1))
             curr_t += step
 
         # 3. Track & Selection
@@ -172,18 +182,15 @@ class ZoomableTrimmer(QWidget):
         x_start = int(self.time_to_pixel(self.start_sec))
         x_end = int(self.time_to_pixel(self.end_sec))
         
-        # Unselected areas (Darker overlay)
-        painter.fillRect(0, track_y, x_start, track_h, QColor(0, 0, 0, 200))
-        painter.fillRect(x_end, track_y, w - x_end, track_h, QColor(0, 0, 0, 200))
+        # Unselected areas
+        painter.fillRect(0, track_y, x_start, track_h, self.brush_overlay)
+        painter.fillRect(x_end, track_y, w - x_end, track_h, self.brush_overlay)
         
-        # Selected Area (Gemini Gradient feel - translucent blue/purple)
-        selection_color = QColor(76, 141, 246, 50) # Transparent Blue
-        painter.fillRect(x_start, track_y, x_end - x_start, track_h, selection_color)
+        # Selected Area
+        painter.fillRect(x_start, track_y, x_end - x_start, track_h, self.brush_selection)
         
-        # Top/Bottom Borders of selection
-        pen_border = QPen(THEME_ACCENT_1)
-        pen_border.setWidth(2)
-        painter.setPen(pen_border)
+        # Borders
+        painter.setPen(self.pen_border)
         painter.drawLine(x_start, track_y, x_end, track_y)
         painter.drawLine(x_start, track_y + track_h, x_end, track_y + track_h)
 
@@ -195,22 +202,19 @@ class ZoomableTrimmer(QWidget):
             
             painter.setPen(Qt.PenStyle.NoPen)
             
-            # Gradient Brush for Handle (Gemini Sparkle)
+            # Gradient Brush 
             grad = QLinearGradient(0, 0, 0, h)
             grad.setColorAt(0.0, THEME_ACCENT_1)
             grad.setColorAt(1.0, THEME_ACCENT_2)
             painter.setBrush(grad)
             
-            # Draw Pill Shape Handle
             rect = QRectF(x_pos - handle_w if is_left else x_pos, h_top, handle_w, h_height)
             painter.drawRoundedRect(rect, 8.0, 8.0)
             
-            # Draw Vertical Line
-            painter.setPen(QPen(THEME_ACCENT_1, 2))
+            painter.setPen(self.pen_handle_line)
             painter.drawLine(x_pos, track_y, x_pos, track_y + track_h)
 
-            # Little grip lines on handle
-            painter.setPen(QPen(QColor(255, 255, 255, 200), 1))
+            painter.setPen(self.pen_grip)
             center_x = x_pos - (handle_w / 2) if is_left else x_pos + (handle_w / 2)
             painter.drawLine(int(center_x), int(h_top) + 10, int(center_x), int(h_top) + h_height - 10)
 
@@ -224,111 +228,27 @@ class EditorWindow(QMainWindow):
         self.setWindowTitle("ProShorts Studio • Gemini Edition")
         self.setGeometry(100, 100, 1200, 850)
         
-        # --- GLOBAL STYLESHEET ---
         self.setStyleSheet("""
-            QMainWindow {
-                background-color: #0e0e0e;
-            }
-            QWidget {
-                color: #E3E3E3;
-                font-family: 'Segoe UI', sans-serif;
-                font-size: 14px;
-            }
-            /* Frames & Containers */
-            QFrame {
-                background-color: #1e1f20;
-                border: 1px solid #333;
-                border-radius: 12px;
-            }
-            /* Specific frame for video preview to be black */
-            QLabel#VideoScreen {
-                background-color: #000000;
-                border: 1px solid #333;
-                border-radius: 12px;
-            }
-            /* Buttons */
-            QPushButton {
-                background-color: #2d2e30;
-                border: 1px solid #444;
-                border-radius: 8px;
-                padding: 8px 16px;
-                font-weight: 500;
-            }
-            QPushButton:hover {
-                background-color: #3d3e40;
-                border-color: #555;
-            }
-            QPushButton:pressed {
-                background-color: #222;
-            }
-            /* Gradient 'Export' Button */
-            QPushButton#BtnExport {
-                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4c8df6, stop:1 #7c4dff);
-                border: none;
-                color: white;
-                font-weight: bold;
-            }
-            QPushButton#BtnExport:hover {
-                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #5c9eff, stop:1 #8c5eff);
-            }
-            /* Accent 'Add' Button */
-            QPushButton#BtnAdd {
-                background-color: #3c4043;
-                border: 1px solid #4c8df6;
-                color: #8ab4f8;
-            }
-            QPushButton#BtnAdd:hover {
-                background-color: #494c50;
-            }
-            /* Inputs */
-            QComboBox {
-                background-color: #2d2e30;
-                border: 1px solid #444;
-                border-radius: 6px;
-                padding: 4px 10px;
-                selection-background-color: #4c8df6;
-            }
-            QCheckBox {
-                spacing: 8px;
-            }
-            QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
-                border-radius: 4px;
-                border: 1px solid #555;
-                background: #2d2e30;
-            }
-            QCheckBox::indicator:checked {
-                background-color: #4c8df6;
-                border-color: #4c8df6;
-            }
-            /* Lists */
-            QListWidget {
-                background-color: #1e1f20;
-                border: 1px solid #333;
-                border-radius: 12px;
-                padding: 5px;
-            }
-            QListWidget::item {
-                padding: 8px;
-                border-radius: 6px;
-            }
-            QListWidget::item:selected {
-                background-color: #3c4043;
-                color: #8ab4f8;
-            }
-            /* Scrollbars */
-            QScrollBar:vertical {
-                border: none;
-                background: #1e1f20;
-                width: 8px;
-                margin: 0px; 
-            }
-            QScrollBar::handle:vertical {
-                background: #555;
-                min-height: 20px;
-                border-radius: 4px;
-            }
+            QMainWindow { background-color: #0e0e0e; }
+            QWidget { color: #E3E3E3; font-family: 'Segoe UI', sans-serif; font-size: 14px; }
+            QFrame { background-color: #1e1f20; border: 1px solid #333; border-radius: 12px; }
+            QLabel#VideoScreen { background-color: #000000; border: 1px solid #333; border-radius: 12px; }
+            QPushButton { background-color: #2d2e30; border: 1px solid #444; border-radius: 8px; padding: 8px 16px; font-weight: 500; }
+            QPushButton:hover { background-color: #3d3e40; border-color: #555; }
+            QPushButton:pressed { background-color: #222; }
+            QPushButton#BtnExport { background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4c8df6, stop:1 #7c4dff); border: none; color: white; font-weight: bold; }
+            QPushButton#BtnExport:hover { background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #5c9eff, stop:1 #8c5eff); }
+            QPushButton#BtnAdd { background-color: #3c4043; border: 1px solid #4c8df6; color: #8ab4f8; }
+            QPushButton#BtnAdd:hover { background-color: #494c50; }
+            QComboBox { background-color: #2d2e30; border: 1px solid #444; border-radius: 6px; padding: 4px 10px; selection-background-color: #4c8df6; }
+            QCheckBox { spacing: 8px; }
+            QCheckBox::indicator { width: 18px; height: 18px; border-radius: 4px; border: 1px solid #555; background: #2d2e30; }
+            QCheckBox::indicator:checked { background-color: #4c8df6; border-color: #4c8df6; }
+            QListWidget { background-color: #1e1f20; border: 1px solid #333; border-radius: 12px; padding: 5px; }
+            QListWidget::item { padding: 8px; border-radius: 6px; }
+            QListWidget::item:selected { background-color: #3c4043; color: #8ab4f8; }
+            QScrollBar:vertical { border: none; background: #1e1f20; width: 8px; margin: 0px; }
+            QScrollBar::handle:vertical { background: #555; min-height: 20px; border-radius: 4px; }
         """)
         
         self.video_path = None
@@ -340,12 +260,11 @@ class EditorWindow(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
         
-        # Main Layout with margins
         layout = QVBoxLayout(central)
         layout.setSpacing(15)
         layout.setContentsMargins(20, 20, 20, 20)
 
-        # --- TOP BAR ---
+        # Top Bar
         top_frame = QFrame()
         top_frame.setFixedHeight(60)
         top_layout = QHBoxLayout(top_frame)
@@ -360,7 +279,6 @@ class EditorWindow(QMainWindow):
         self.combo_mode.currentIndexChanged.connect(self.toggle_settings)
         top_layout.addWidget(self.combo_mode)
         
-        # Vertical Separator
         line = QFrame()
         line.setFrameShape(QFrame.Shape.VLine)
         line.setStyleSheet("border: none; background-color: #444; width: 1px;")
@@ -381,43 +299,31 @@ class EditorWindow(QMainWindow):
         layout.addWidget(top_frame)
         self.toggle_settings(0)
 
-        # --- PREVIEW AREA ---
+        # Preview Area
         self.screen = QLabel("Load Video")
-        self.screen.setObjectName("VideoScreen") # For styling
+        self.screen.setObjectName("VideoScreen")
         self.screen.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.screen.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        # Placeholder styling
         self.screen.setStyleSheet("QLabel#VideoScreen { color: #555; font-size: 16px; background-color: #000; }")
         layout.addWidget(self.screen)
 
-        # --- CONTROLS AREA ---
+        # Controls Area
         controls = QFrame()
         c_layout = QVBoxLayout(controls)
         c_layout.setSpacing(10)
         
-        # Info Label
         self.lbl_info = QLabel("Scroll timeline to Zoom • Drag background to Pan")
         self.lbl_info.setStyleSheet("color: #9aa0a6; font-size: 12px; border: none; background: transparent;")
         self.lbl_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
         c_layout.addWidget(self.lbl_info)
         
-        # Trimmer
         self.trimmer = ZoomableTrimmer()
         self.trimmer.rangeChanged.connect(self.on_trim_update)
         c_layout.addWidget(self.trimmer)
         
-        # Play Button (Centered)
         self.btn_play = QPushButton("▶")
         self.btn_play.setFixedSize(50, 50)
-        self.btn_play.setStyleSheet("""
-            QPushButton {
-                background-color: #4c8df6; 
-                border-radius: 25px; 
-                font-size: 20px; 
-                color: white;
-            }
-            QPushButton:hover { background-color: #5c9eff; }
-        """)
+        self.btn_play.setStyleSheet("QPushButton { background-color: #4c8df6; border-radius: 25px; font-size: 20px; color: white; } QPushButton:hover { background-color: #5c9eff; }")
         self.btn_play.clicked.connect(self.toggle_play)
         
         h_center = QHBoxLayout()
@@ -426,7 +332,7 @@ class EditorWindow(QMainWindow):
         
         layout.addWidget(controls)
 
-        # --- BOTTOM ACTION BAR ---
+        # Bottom Bar
         b_layout = QHBoxLayout()
         b_layout.setSpacing(15)
         
@@ -442,14 +348,13 @@ class EditorWindow(QMainWindow):
         b_layout.addStretch()
         
         self.btn_exp = QPushButton("✨ Export Shorts")
-        self.btn_exp.setObjectName("BtnExport") # Triggers gradient style
+        self.btn_exp.setObjectName("BtnExport")
         self.btn_exp.setMinimumWidth(150)
         self.btn_exp.clicked.connect(self.export_video)
         b_layout.addWidget(self.btn_exp)
         
         layout.addLayout(b_layout)
 
-        # --- QUEUE LIST ---
         self.list_clips = QListWidget()
         self.list_clips.setMaximumHeight(80)
         layout.addWidget(self.list_clips)
@@ -460,15 +365,12 @@ class EditorWindow(QMainWindow):
         self.chk_hdr.setEnabled(is_custom)
         self.lbl_res.setEnabled(is_custom)
         
-        disabled_style = "color: #555; border: 1px solid #333;"
-        enabled_style = "" # Reverts to global stylesheet
-        
         if not is_custom:
-            self.combo_res.setStyleSheet(disabled_style)
+            self.combo_res.setStyleSheet("color: #555; border: 1px solid #333;")
             self.chk_hdr.setStyleSheet("color: #555;")
             self.lbl_res.setStyleSheet("color: #555; border: none; background: transparent;")
         else:
-            self.combo_res.setStyleSheet(enabled_style)
+            self.combo_res.setStyleSheet("")
             self.chk_hdr.setStyleSheet("")
             self.lbl_res.setStyleSheet("color: #e3e3e3; border: none; background: transparent;")
 
@@ -502,10 +404,23 @@ class EditorWindow(QMainWindow):
         if ret: self.display_frame(frame)
 
     def display_frame(self, frame):
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        # OPTIMIZATION: Avoid cv2.cvtColor(BGR->RGB)
         h, w, ch = frame.shape
-        img = QImage(frame.data, w, h, ch*w, QImage.Format.Format_RGB888)
-        pix = QPixmap.fromImage(img).scaled(self.screen.size(), Qt.AspectRatioMode.KeepAspectRatio)
+        bytes_per_line = ch * w
+        
+        # 1. Direct memory access using BGR format (Faster)
+        img = QImage(frame.data, w, h, bytes_per_line, QImage.Format.Format_BGR888)
+        
+        # 2. Scale QImage FIRST (Faster than scaling QPixmap for large frames)
+        target_size = self.screen.size()
+        
+        # If the image is large, scale the raw data down first using FastTransformation
+        # This reduces the texture upload size to the GPU significantly.
+        if w > 1920 or h > 1080:
+             img = img.scaled(target_size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.FastTransformation)
+        
+        # 3. Convert to Pixmap for display
+        pix = QPixmap.fromImage(img).scaled(target_size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.FastTransformation)
         self.screen.setPixmap(pix)
 
     def update_preview(self, frame_no):
@@ -543,10 +458,7 @@ class EditorWindow(QMainWindow):
         l = QVBoxLayout(self.pbar_win)
         l.addWidget(QLabel("Rendering Video..."))
         self.p_bar = QProgressBar()
-        self.p_bar.setStyleSheet("""
-            QProgressBar { border: 1px solid #444; border-radius: 5px; text-align: center; }
-            QProgressBar::chunk { background-color: #4c8df6; width: 20px; }
-        """)
+        self.p_bar.setStyleSheet("QProgressBar { border: 1px solid #444; border-radius: 5px; text-align: center; } QProgressBar::chunk { background-color: #4c8df6; width: 20px; }")
         l.addWidget(self.p_bar)
         self.pbar_win.show()
         
