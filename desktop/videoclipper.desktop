@@ -1,0 +1,14 @@
+[Desktop Entry]
+Version=1.5
+Type=Application
+Name=VideoClipper
+GenericName=Video Clipper and Shorts Creator
+Comment=Fast preview, precision trim, and 9:16 vertical video shorts generator
+Exec=videoclipper %F
+Icon=videoclipper
+Terminal=false
+Categories=AudioVideo;Video;AudioVideoEditing;Qt;
+Keywords=video;clipper;trim;cut;shorts;ffmpeg;reels;tiktok;
+MimeType=video/mp4;video/x-matroska;video/webm;video/quicktime;video/x-msvideo;
+StartupNotify=true
+StartupWMClass=videoclipper

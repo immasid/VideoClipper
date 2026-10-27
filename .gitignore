@@ -5,3 +5,5 @@ output_shorts/
 temp_chunks/
 .DS_Store
 *.exe
+# Generated package artifacts
+packaging/*.pkg.tar.zst
