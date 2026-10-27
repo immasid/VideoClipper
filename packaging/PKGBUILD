@@ -1,0 +1,40 @@
+# Maintainer: VideoClipper Contributors
+pkgname=videoclipper
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="Fast preview, precision trim, and 9:16 vertical video shorts generator"
+arch=('any')
+url="https://github.com/videoclipper/videoclipper"
+license=('MIT')
+depends=('python' 'python-pyqt6' 'python-opencv' 'python-numpy' 'ffmpeg')
+makedepends=('coreutils')
+source=()
+
+package() {
+    # Resolve source root directory (parent of packaging directory)
+    local _rootdir="${startdir}/.."
+
+    # Install Python application modules into standard /usr/lib/videoclipper
+    install -dm755 "${pkgdir}/usr/lib/videoclipper"
+    install -m644 "${_rootdir}/backend.py" "${pkgdir}/usr/lib/videoclipper/"
+    install -m644 "${_rootdir}/main.py" "${pkgdir}/usr/lib/videoclipper/"
+
+    # Install standard launcher script in /usr/bin/videoclipper
+    install -dm755 "${pkgdir}/usr/bin"
+    cat << 'EOF' > "${pkgdir}/usr/bin/videoclipper"
+#!/usr/bin/env sh
+exec /usr/bin/python3 /usr/lib/videoclipper/main.py "$@"
+EOF
+    chmod 755 "${pkgdir}/usr/bin/videoclipper"
+
+    # Install XDG Desktop entry
+    install -dm755 "${pkgdir}/usr/share/applications"
+    install -m644 "${_rootdir}/desktop/videoclipper.desktop" "${pkgdir}/usr/share/applications/"
+
+    # Install scalable and raster desktop icons
+    install -dm755 "${pkgdir}/usr/share/icons/hicolor/scalable/apps"
+    install -m644 "${_rootdir}/assets/videoclipper.svg" "${pkgdir}/usr/share/icons/hicolor/scalable/apps/"
+
+    install -dm755 "${pkgdir}/usr/share/icons/hicolor/256x256/apps"
+    install -m644 "${_rootdir}/assets/videoclipper.png" "${pkgdir}/usr/share/icons/hicolor/256x256/apps/"
+}
